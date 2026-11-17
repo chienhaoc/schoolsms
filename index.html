@@ -1,26 +1,199 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Web App</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>和平高中輿情追蹤</title>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
-    iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: block;
-    }
+    body{font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;background:#f6f7f9;margin:0;padding:0}
+    .top{background:#1e2a3a;color:#fff;padding:10px 16px;font-size:15px;font-weight:800;display:flex;justify-content:space-between;align-items:center}
+    .top button{background:#fff;color:#1e2a3a;border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer}
+    .stats{background:#fff;padding:10px 16px;font-size:13px;color:#333;border-bottom:1px solid #eee;display:flex;gap:12px;flex-wrap:wrap}
+    .stats b{font-size:15px}.stats .neg b{color:#b91c1c}.stats .high b{color:#b91c1c}
+    .filters{padding:10px 16px 0;white-space:nowrap;overflow-x:auto}.filters button{padding:7px 12px;margin-right:6px;border:1px solid #ddd;background:#fff;border-radius:999px;cursor:pointer}
+    .filters button.on{background:#1e2a3a;color:#fff}
+    .list{padding:12px 16px 20px}.card{background:#fff;border-radius:12px;padding:12px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .tag{display:inline-block;font-size:11px;padding:3px 7px;border-radius:999px;background:#eef0f2;margin:0 4px 4px 0}
+    .title{font-size:15px;font-weight:800;margin:6px 0}.action{font-size:12px;color:#555;background:#f2f4f7;padding:7px 9px;border-radius:7px;margin-bottom:8px}
+    .link{font-size:13px;color:#2563eb;text-decoration:underline}.domain{font-size:11px;color:#888;margin-left:6px}
+    .status-msg{padding:24px 16px;text-align:center;color:#666;font-size:14px}
+    .status-msg.err{color:#b91c1c}
   </style>
 </head>
 <body>
-  <iframe src="https://script.google.com/macros/s/AKfycbxqOdN0EzvQF-1ouUwaxl3qFd8sp25Iu0nMs8FU0tXNLxwg6aqKcS4ZQ-kD3AU62xob/exec" allow="geolocation; microphone; camera"></iframe>
+  <div class="top">
+    <span>和平高中輿情追蹤</span>
+    <button id="reloadBtn" type="button">⟳ 重新整理</button>
+  </div>
+  <div class="stats" id="stats">
+    <span>載入中...</span>
+  </div>
+  <div class="filters">
+    <button class="on" data-filter="all" type="button">全部</button>
+    <button data-filter="負面" type="button">只看負面</button>
+    <button data-filter="高" type="button">只看急迫度高</button>
+  </div>
+  <div class="list" id="list">
+    <div class="status-msg">資料載入中，請稍候...</div>
+  </div>
+
+  <script>
+    const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbynBkF-oP77RVDoE4DFRYxVa1JJIsCIJzrJreXVfCQB078kivl4KFfO1stng9vUtnby/exec';
+    let currentFilter = 'all';
+
+    function getDomain(link, platform) {
+      if (!link) return platform || '';
+      try {
+        const url = new URL(link);
+        return url.hostname.replace(/^www\./, '');
+      } catch (e) {
+        return platform || '';
+      }
+    }
+
+    function createTag(text, bg, color) {
+      const span = document.createElement('span');
+      span.className = 'tag';
+      span.textContent = text;
+      if (bg) span.style.background = bg;
+      if (color) span.style.color = color;
+      return span;
+    }
+
+    function renderStats(stats) {
+      const statsEl = document.getElementById('stats');
+      statsEl.innerHTML = '';
+
+      const items = [
+        { label: '共 ', val: stats.total, suffix: ' 則', cls: '' },
+        { label: '負面 ', val: stats.neg, suffix: '', cls: 'neg' },
+        { label: '高急迫 ', val: stats.high, suffix: '', cls: 'high' },
+        { label: '正面 ', val: stats.pos, suffix: '', cls: '' }
+      ];
+
+      items.forEach(item => {
+        const span = document.createElement('span');
+        if (item.cls) span.className = item.cls;
+        span.appendChild(document.createTextNode(item.label));
+        const b = document.createElement('b');
+        b.textContent = String(item.val);
+        span.appendChild(b);
+        if (item.suffix) span.appendChild(document.createTextNode(item.suffix));
+        statsEl.appendChild(span);
+      });
+
+      const src = document.createElement('span');
+      src.style.color = '#888';
+      src.textContent = '來源：Google Sheet · 只顯示和平高中';
+      statsEl.appendChild(src);
+    }
+
+    function renderCards(items) {
+      const listEl = document.getElementById('list');
+      listEl.innerHTML = '';
+
+      if (!items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'status-msg';
+        empty.textContent = '目前沒有符合條件的輿情資料。';
+        listEl.appendChild(empty);
+        return;
+      }
+
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.sentiment = item.sentiment;
+        card.dataset.urgency = item.urgency;
+
+        const color = item.sentiment === '正面' ? '#147a2e' : item.sentiment === '負面' ? '#b91c1c' : '#555';
+        const bg = item.sentiment === '正面' ? '#e6f6ec' : item.sentiment === '負面' ? '#fdecec' : '#eef0f2';
+
+        const tagsRow = document.createElement('div');
+        tagsRow.appendChild(createTag(item.sentiment || '未分類', bg, color));
+        tagsRow.appendChild(createTag('急迫度 ' + (item.urgency || '-')));
+        if (item.platform) tagsRow.appendChild(createTag(item.platform));
+        if (item.time) tagsRow.appendChild(createTag(item.time));
+        card.appendChild(tagsRow);
+
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = item.summary;
+        card.appendChild(title);
+
+        const action = document.createElement('div');
+        action.className = 'action';
+        action.textContent = '建議：' + item.action;
+        card.appendChild(action);
+
+        if (item.link && /^https?:\/\//i.test(item.link)) {
+          const link = document.createElement('a');
+          link.className = 'link';
+          link.href = item.link;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = '開啟原文 ↗';
+          card.appendChild(link);
+        }
+
+        const domain = document.createElement('span');
+        domain.className = 'domain';
+        domain.textContent = getDomain(item.link, item.platform);
+        card.appendChild(domain);
+
+        listEl.appendChild(card);
+      });
+
+      applyFilter(currentFilter);
+    }
+
+    function applyFilter(key) {
+      currentFilter = key;
+      document.querySelectorAll('.filters button').forEach(btn => {
+        btn.classList.toggle('on', btn.dataset.filter === key);
+      });
+      document.querySelectorAll('.card').forEach(card => {
+        if (key === 'all') {
+          card.style.display = 'block';
+        } else if (key === '高') {
+          card.style.display = card.dataset.urgency === '高' ? 'block' : 'none';
+        } else {
+          card.style.display = card.dataset.sentiment === key ? 'block' : 'none';
+        }
+      });
+    }
+
+    async function loadData() {
+      const listEl = document.getElementById('list');
+      listEl.innerHTML = '<div class="status-msg">資料載入中，請稍候...</div>';
+
+      try {
+        const res = await fetch(GAS_API_URL, { credentials: 'omit' });
+        const text = await res.text();
+        if (text.trim().startsWith('<')) {
+          throw new Error('GAS 尚未更新為 JSON API 部署，或回傳了 HTML 頁面。');
+        }
+        const data = JSON.parse(text);
+        if (data.status === 'error') {
+          throw new Error(data.message || '讀取資料失敗');
+        }
+        renderStats(data.stats);
+        renderCards(data.items);
+      } catch (err) {
+        listEl.innerHTML = '';
+        const errDiv = document.createElement('div');
+        errDiv.className = 'status-msg err';
+        errDiv.textContent = '載入失敗：' + err.message;
+        listEl.appendChild(errDiv);
+      }
+    }
+
+    document.getElementById('reloadBtn').addEventListener('click', loadData);
+    document.querySelectorAll('.filters button').forEach(btn => {
+      btn.addEventListener('click', () => applyFilter(btn.dataset.filter));
+    });
+
+    loadData();
+  </script>
 </body>
 </html>
