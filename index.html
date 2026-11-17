@@ -3,32 +3,41 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>和平高中輿情追蹤</title>
+  <title>校園輿情追蹤</title>
   <style>
     body{font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;background:#f6f7f9;margin:0;padding:0}
     .top{background:#1e2a3a;color:#fff;padding:10px 16px;font-size:15px;font-weight:800;display:flex;justify-content:space-between;align-items:center}
     .top button{background:#fff;color:#1e2a3a;border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer}
     .stats{background:#fff;padding:10px 16px;font-size:13px;color:#333;border-bottom:1px solid #eee;display:flex;gap:12px;flex-wrap:wrap}
     .stats b{font-size:15px}.stats .neg b{color:#b91c1c}.stats .high b{color:#b91c1c}
-    .filters{padding:10px 16px 0;white-space:nowrap;overflow-x:auto}.filters button{padding:7px 12px;margin-right:6px;border:1px solid #ddd;background:#fff;border-radius:999px;cursor:pointer}
-    .filters button.on{background:#1e2a3a;color:#fff}
+    .filters{padding:10px 16px 0;white-space:nowrap;overflow-x:auto;display:flex;align-items:center;gap:6px}
+    .filters button,.filters select{padding:7px 12px;border:1px solid #ddd;background:#fff;border-radius:999px;cursor:pointer;font-size:13px;color:#333}
+    .filters button.on{background:#1e2a3a;color:#fff;border-color:#1e2a3a}
     .list{padding:12px 16px 20px}.card{background:#fff;border-radius:12px;padding:12px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
     .tag{display:inline-block;font-size:11px;padding:3px 7px;border-radius:999px;background:#eef0f2;margin:0 4px 4px 0}
     .title{font-size:15px;font-weight:800;margin:6px 0}.action{font-size:12px;color:#555;background:#f2f4f7;padding:7px 9px;border-radius:7px;margin-bottom:8px}
     .links{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.link{font-size:13px;color:#2563eb;text-decoration:underline}.domain{font-size:11px;color:#888}
     .status-msg{padding:24px 16px;text-align:center;color:#666;font-size:14px}
     .status-msg.err{color:#b91c1c}
+    .auth-card{max-width:420px;margin:24px auto;background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 6px rgba(0,0,0,.08)}
+    .auth-card h2{margin:0 0 8px;font-size:16px;color:#1e2a3a}
+    .auth-card p{margin:0 0 14px;font-size:13px;color:#555;line-height:1.5}
+    .auth-card p.err{color:#b91c1c}
+    .auth-form{display:flex;gap:8px}
+    .auth-form input{flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px}
+    .auth-form button{background:#1e2a3a;color:#fff;border:0;border-radius:8px;padding:9px 16px;font-size:14px;font-weight:700;cursor:pointer}
   </style>
 </head>
 <body>
   <div class="top">
-    <span>和平高中輿情追蹤</span>
+    <span id="pageTitle">校園輿情追蹤</span>
     <button id="reloadBtn" type="button">⟳ 重新整理</button>
   </div>
   <div class="stats" id="stats">
-    <span>載入中...</span>
+    <span>準備中...</span>
   </div>
-  <div class="filters">
+  <div class="filters" id="filtersBar" style="display:none">
+    <select id="schoolSelect" style="display:none" aria-label="選擇學校"></select>
     <button class="on" data-filter="all" type="button">全部</button>
     <button data-filter="負面" type="button">只看負面</button>
     <button data-filter="高" type="button">只看急迫度高</button>
@@ -39,6 +48,13 @@
 
   <script>
     const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbynBkF-oP77RVDoE4DFRYxVa1JJIsCIJzrJreXVfCQB078kivl4KFfO1stng9vUtnby/exec';
+
+    let currentKey = (new URLSearchParams(window.location.search).get('key') || '').trim();
+    let currentMode = 'single';
+    let currentSchoolName = '';
+    let availableSchools = [];
+    let allItems = [];
+    let currentSchool = 'ALL';
     let currentFilter = 'all';
 
     function parseLinks(linkStr) {
@@ -71,7 +87,73 @@
       return span;
     }
 
-    function renderStats(stats) {
+    function updateTitles(titleText) {
+      document.title = titleText;
+      document.getElementById('pageTitle').textContent = titleText;
+    }
+
+    function renderAuthPrompt(message, isError) {
+      updateTitles('校園輿情追蹤');
+      document.getElementById('filtersBar').style.display = 'none';
+      const statsEl = document.getElementById('stats');
+      statsEl.innerHTML = '';
+      const info = document.createElement('span');
+      info.style.color = '#888';
+      info.textContent = '請輸入各校專屬通行碼以檢視報表';
+      statsEl.appendChild(info);
+
+      const listEl = document.getElementById('list');
+      listEl.innerHTML = '';
+
+      const card = document.createElement('div');
+      card.className = 'auth-card';
+
+      const heading = document.createElement('h2');
+      heading.textContent = '輸入學校通行碼';
+      card.appendChild(heading);
+
+      const desc = document.createElement('p');
+      if (isError) desc.className = 'err';
+      desc.textContent = message || '請輸入學校通行碼，或直接使用帶有 ?key= 的專屬連結開啟報表。';
+      card.appendChild(desc);
+
+      const form = document.createElement('form');
+      form.className = 'auth-form';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = '請輸入通行碼';
+      input.value = currentKey;
+      input.autocomplete = 'off';
+      form.appendChild(input);
+
+      const submitBtn = document.createElement('button');
+      submitBtn.type = 'submit';
+      submitBtn.textContent = '進入報表';
+      form.appendChild(submitBtn);
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const nextKey = input.value.trim();
+        if (!nextKey) {
+          renderAuthPrompt('請輸入有效的通行碼。', true);
+          return;
+        }
+        currentKey = nextKey;
+        currentSchool = 'ALL';
+        currentFilter = 'all';
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set('key', nextKey);
+        window.history.replaceState({}, '', nextUrl.toString());
+        loadData(false);
+      });
+
+      card.appendChild(form);
+      listEl.appendChild(card);
+      input.focus();
+    }
+
+    function renderStats(stats, sourceLabel) {
       const statsEl = document.getElementById('stats');
       statsEl.innerHTML = '';
 
@@ -95,8 +177,38 @@
 
       const src = document.createElement('span');
       src.style.color = '#888';
-      src.textContent = '來源：Google Sheet · 只顯示和平高中';
+      src.textContent = sourceLabel;
       statsEl.appendChild(src);
+    }
+
+    function renderSchoolSelector() {
+      const selectEl = document.getElementById('schoolSelect');
+      selectEl.innerHTML = '';
+
+      if (currentMode !== 'admin' || !availableSchools.length) {
+        selectEl.style.display = 'none';
+        currentSchool = 'ALL';
+        return;
+      }
+
+      if (currentSchool !== 'ALL' && !availableSchools.includes(currentSchool)) {
+        currentSchool = 'ALL';
+      }
+
+      const allOpt = document.createElement('option');
+      allOpt.value = 'ALL';
+      allOpt.textContent = '全部學校';
+      selectEl.appendChild(allOpt);
+
+      availableSchools.forEach(school => {
+        const opt = document.createElement('option');
+        opt.value = school;
+        opt.textContent = school;
+        selectEl.appendChild(opt);
+      });
+
+      selectEl.value = currentSchool;
+      selectEl.style.display = 'inline-block';
     }
 
     function renderCards(items) {
@@ -121,6 +233,9 @@
         const bg = item.sentiment === '正面' ? '#e6f6ec' : item.sentiment === '負面' ? '#fdecec' : '#eef0f2';
 
         const tagsRow = document.createElement('div');
+        if (currentMode === 'admin' && item.school) {
+          tagsRow.appendChild(createTag(item.school, '#1e2a3a', '#fff'));
+        }
         tagsRow.appendChild(createTag(item.sentiment || '未分類', bg, color));
         tagsRow.appendChild(createTag('急迫度 ' + (item.urgency || '-')));
         if (item.platform) tagsRow.appendChild(createTag(item.platform));
@@ -160,7 +275,6 @@
         linksRow.appendChild(domain);
 
         card.appendChild(linksRow);
-
         listEl.appendChild(card);
       });
 
@@ -183,22 +297,70 @@
       });
     }
 
-    async function loadData() {
+    function renderView() {
+      const schoolItems = (currentMode === 'admin' && currentSchool !== 'ALL')
+        ? allItems.filter(item => item.school === currentSchool)
+        : allItems;
+
+      const stats = {
+        total: schoolItems.length,
+        neg: schoolItems.filter(x => x.sentiment === '負面').length,
+        high: schoolItems.filter(x => x.urgency === '高').length,
+        pos: schoolItems.filter(x => x.sentiment === '正面').length
+      };
+
+      const sourceLabel = currentMode === 'admin'
+        ? ('來源：Google Sheet · ' + (currentSchool === 'ALL' ? '顯示全部學校' : '目前顯示 ' + currentSchool))
+        : ('來源：Google Sheet · 只顯示' + currentSchoolName);
+
+      renderStats(stats, sourceLabel);
+      renderCards(schoolItems);
+    }
+
+    async function loadData(forceRefresh) {
+      if (!currentKey) {
+        renderAuthPrompt('請輸入學校通行碼，或使用帶有 ?key= 的專屬連結開啟報表。', false);
+        return;
+      }
+
       const listEl = document.getElementById('list');
       listEl.innerHTML = '<div class="status-msg">資料載入中，請稍候...</div>';
 
       try {
-        const res = await fetch(GAS_API_URL, { credentials: 'omit' });
+        const apiUrl = new URL(GAS_API_URL);
+        apiUrl.searchParams.set('key', currentKey);
+        if (forceRefresh) {
+          apiUrl.searchParams.set('nocache', '1');
+        }
+
+        const res = await fetch(apiUrl.toString(), { credentials: 'omit' });
         const text = await res.text();
         if (text.trim().startsWith('<')) {
           throw new Error('GAS 尚未更新為 JSON API 部署，或回傳了 HTML 頁面。');
         }
+
         const data = JSON.parse(text);
+        if (data.status === 'auth_required' || data.status === 'auth_error') {
+          renderAuthPrompt(data.message, data.status === 'auth_error');
+          return;
+        }
         if (data.status === 'error') {
           throw new Error(data.message || '讀取資料失敗');
         }
-        renderStats(data.stats);
-        renderCards(data.items);
+
+        currentMode = data.mode || 'single';
+        currentSchoolName = data.schoolName || '';
+        availableSchools = Array.isArray(data.schools) ? data.schools : [];
+        allItems = Array.isArray(data.items) ? data.items : [];
+
+        const titleText = currentMode === 'admin'
+          ? '校園輿情追蹤（總覽）'
+          : (currentSchoolName ? currentSchoolName + '輿情追蹤' : '校園輿情追蹤');
+        updateTitles(titleText);
+
+        document.getElementById('filtersBar').style.display = 'flex';
+        renderSchoolSelector();
+        renderView();
       } catch (err) {
         listEl.innerHTML = '';
         const errDiv = document.createElement('div');
@@ -208,12 +370,16 @@
       }
     }
 
-    document.getElementById('reloadBtn').addEventListener('click', loadData);
+    document.getElementById('reloadBtn').addEventListener('click', () => loadData(true));
+    document.getElementById('schoolSelect').addEventListener('change', function (e) {
+      currentSchool = e.target.value;
+      renderView();
+    });
     document.querySelectorAll('.filters button').forEach(btn => {
       btn.addEventListener('click', () => applyFilter(btn.dataset.filter));
     });
 
-    loadData();
+    loadData(false);
   </script>
 </body>
 </html>
