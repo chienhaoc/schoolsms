@@ -15,7 +15,7 @@
     .list{padding:12px 16px 20px}.card{background:#fff;border-radius:12px;padding:12px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
     .tag{display:inline-block;font-size:11px;padding:3px 7px;border-radius:999px;background:#eef0f2;margin:0 4px 4px 0}
     .title{font-size:15px;font-weight:800;margin:6px 0}.action{font-size:12px;color:#555;background:#f2f4f7;padding:7px 9px;border-radius:7px;margin-bottom:8px}
-    .link{font-size:13px;color:#2563eb;text-decoration:underline}.domain{font-size:11px;color:#888;margin-left:6px}
+    .links{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.link{font-size:13px;color:#2563eb;text-decoration:underline}.domain{font-size:11px;color:#888}
     .status-msg{padding:24px 16px;text-align:center;color:#666;font-size:14px}
     .status-msg.err{color:#b91c1c}
   </style>
@@ -41,14 +41,25 @@
     const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbynBkF-oP77RVDoE4DFRYxVa1JJIsCIJzrJreXVfCQB078kivl4KFfO1stng9vUtnby/exec';
     let currentFilter = 'all';
 
-    function getDomain(link, platform) {
-      if (!link) return platform || '';
-      try {
-        const url = new URL(link);
-        return url.hostname.replace(/^www\./, '');
-      } catch (e) {
-        return platform || '';
-      }
+    function parseLinks(linkStr) {
+      if (!linkStr) return [];
+      return String(linkStr)
+        .split('|')
+        .map(s => s.trim())
+        .filter(s => /^https?:\/\//i.test(s));
+    }
+
+    function getDomain(links, platform) {
+      const list = Array.isArray(links) ? links : parseLinks(links);
+      if (!list.length) return platform || '';
+      const hosts = [];
+      list.forEach(raw => {
+        try {
+          const host = new URL(raw).hostname.replace(/^www\./, '');
+          if (host && !hosts.includes(host)) hosts.push(host);
+        } catch (e) {}
+      });
+      return hosts.length ? hosts.join(', ') : (platform || '');
     }
 
     function createTag(text, bg, color) {
@@ -126,20 +137,29 @@
         action.textContent = '建議：' + item.action;
         card.appendChild(action);
 
-        if (item.link && /^https?:\/\//i.test(item.link)) {
+        const links = Array.isArray(item.links) && item.links.length
+          ? item.links.map(s => String(s).trim()).filter(s => /^https?:\/\//i.test(s))
+          : parseLinks(item.link);
+
+        const linksRow = document.createElement('div');
+        linksRow.className = 'links';
+
+        links.forEach((href, idx) => {
           const link = document.createElement('a');
           link.className = 'link';
-          link.href = item.link;
+          link.href = href;
           link.target = '_blank';
           link.rel = 'noopener noreferrer';
-          link.textContent = '開啟原文 ↗';
-          card.appendChild(link);
-        }
+          link.textContent = links.length > 1 ? '開啟原文 ' + (idx + 1) + ' ↗' : '開啟原文 ↗';
+          linksRow.appendChild(link);
+        });
 
         const domain = document.createElement('span');
         domain.className = 'domain';
-        domain.textContent = getDomain(item.link, item.platform);
-        card.appendChild(domain);
+        domain.textContent = getDomain(links, item.platform);
+        linksRow.appendChild(domain);
+
+        card.appendChild(linksRow);
 
         listEl.appendChild(card);
       });
